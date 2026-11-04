@@ -1,31 +1,59 @@
-// test.js
-// Prove the service is single-use under concurrency.
-//
-// TODO:
-//   1. Issue one token.
-//   2. Fire 5 consumeToken calls AT ONCE with Promise.all.
-//   3. Count how many returned { ok: true } and assert it is exactly 1.
-//   4. Print the winners count so it shows in the output.
+import {
+    issueToken,
+    consumeToken,
+    closeTokenService
+} from "./token-service.js";
 
-import { issueToken, consumeToken, closeRedis } from "./token-service.js";
+try {
+    // Step 1: Create a token
+    const id = await issueToken(
+        { userId: 42, purpose: "password-reset" },
+        60
+    );
 
-async function main() {
-  const id = await issueToken({ userId: 42 }, 60);
-  console.log("issued token:", id);
+    console.log("Generated token:", id);
+    console.log("Token length:", id.length);
 
-  // TODO: fire 5 consumers concurrently with Promise.all
-  const results = await Promise.all([
-    // consumeToken(id), consumeToken(id), consumeToken(id),
-    // consumeToken(id), consumeToken(id),
-  ]);
+    // Step 2: Consume the token once
+    const firstResult = await consumeToken(id);
+    console.log("First consumption:", firstResult);
 
-  const winners = results.filter((r) => r.ok).length;
-  console.log("winners:", winners); // expect exactly 1
+    // Step 3: Try consuming it again
+    const secondResult = await consumeToken(id);
+    console.log("Second consumption:", secondResult);
 
-  console.assert(winners === 1, "SINGLE-USE VIOLATED! winners = " + winners);
-  if (winners === 1) console.log("PASS: token was single-use.");
+    // Step 4: Create another token for concurrency test
+    const concurrentId = await issueToken(
+        { userId: 100, purpose: "email-verification" },
+        60
+    );
 
-  await closeRedis();
+    // Step 5: Five users consume the SAME token simultaneously
+    const results = await Promise.all([
+        consumeToken(concurrentId),
+        consumeToken(concurrentId),
+        consumeToken(concurrentId),
+        consumeToken(concurrentId),
+        consumeToken(concurrentId)
+    ]);
+
+    // Step 6: Count successful consumers
+    const winners = results.filter(result => result.ok).length;
+
+    console.log("Concurrent results:", results);
+    console.log("Number of winners:", winners);
+
+    // Step 7: Verify single-use property
+    if (winners === 1) {
+        console.log("SUCCESS: Token was consumed exactly once!");
+    } else {
+        throw new Error("Single-use test failed!");
+    }
+
+} catch (error) {
+    console.error("Test failed:", error);
+    process.exitCode = 1;
+
+} finally {
+    await closeTokenService();
 }
-
-main();
